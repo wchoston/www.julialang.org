@@ -550,6 +550,14 @@
     <pubDate>Mon, 3 Oct 2016 00:00:00 UT</pubDate>
   </item>
   <item>
+    <title>Analyzing sources of compiler latency in Julia: method invalidations</title>
+    <link>https://julialang.org/blog/2020/05/invalidations/index.html</link>
+    <description><![CDATA[Julia is fast, but compiling Julia code takes time. This post analyzes why it&#39;s sometimes necessary to repeat that work, and what might be done to fix it.
+<br><a href="https://julialang.org/blog/2020/05/invalidations/index.html">Read more</a>]]></description>
+    <guid>https://julialang.org/blog/2020/05/invalidations/index.html</guid>
+    <pubDate>Sun, 10 May 2020 00:00:00 UT</pubDate>
+  </item>
+  <item>
     <title>Julia 1.0 正式發佈 (Simplified Chinese)</title>
     <link>https://julialang.org/blog/2018/08/one-point-zero-zh_cn/index.html</link>
     <description><![CDATA[Julia 1.0 正式發佈 &#40;Simplified Chinese&#41; | 备受期待的Julia语言 &#40;https://julialang.org&#41;的1.0版本积累了富有野心的程序员们的十年心血。... 

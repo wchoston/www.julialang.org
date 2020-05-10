@@ -1,0 +1,300 @@
+<!doctype html> <html lang=en > <meta charset=UTF-8 > <meta name=viewport  content="width=device-width, initial-scale=1, shrink-to-fit=no"> <meta http-equiv=x-ua-compatible  content="ie=edge"> <meta http-equiv=content-type  content="text/html; charset=utf-8" /> <meta name=author  content="Jeff Bezanson, Stefan Karpinski, Viral Shah, Alan Edelman, et al." /> <meta name=description  content="The official website for the Julia Language. Julia is a language that is fast, dynamic, easy to use, and open source. Click here to learn more."/> <meta property="og:title" content="The Julia Language"/> <meta property="og:image" content="/assets/images/julia-open-graph.png"/> <meta property="og:description" content="Official website for the Julia programming language"/> <link rel=stylesheet  href="/libs/bootstrap/bootstrap.min.css" /> <link rel=stylesheet  href="/css/app.css" /> <link rel=stylesheet  href="/css/franklin.css" /> <link rel=stylesheet  href="/css/fonts.css" /> <link href="https://fonts.googleapis.com/css?family=Roboto:400,400i,500,500i,700,700i" rel=stylesheet > <link href="https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css" rel=stylesheet > <script async defer src="/libs/buttons.js"></script> <!-- --> <script type="application/javascript"> var doNotTrack = false; if (!doNotTrack) { window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date; ga('create', 'UA-28835595-1', 'auto'); ga('send', 'pageview'); } </script> <script async src='https://www.google-analytics.com/analytics.js'></script> <link rel=icon  href="/assets/infra/julia.ico"> <link rel=stylesheet  href="/libs/highlight/github.min.css"> <title>Analyzing sources of compiler latency in Julia: method invalidations</title> <style> .container ul li p {margin-bottom: 0;} </style> <style> .main { font-family: Georgia; } .main pre { margin-left: auto; margin-right: auto; width: 90%; } .main { width: 75%; font-size: 100%; } .main code { font-size: 90%; } .main pre code { font-size: 90%; } .container.blog-title { width: 75%; } @media (min-width: 940px) { .main { width: 800px;} .container.blog-title { width: 800px;} } </style> <div class="container py-3 py-lg-0"> <nav class="navbar navbar-expand-lg navbar-light bg-light" id=main-menu > <a class=navbar-brand  href="/" id=logo > <img src="/assets/infra/logo.svg" height=55  width=85  alt="JuliaLang Logo"/> </a> <button class="navbar-toggler ml-auto hidden-sm-up float-xs-left" type=button  data-toggle=collapse  data-target="#navbarSupportedContent" aria-controls=navbarSupportedContent  aria-expanded=false  aria-label="Toggle navigation"> <span class=navbar-toggler-icon ></span> </button> <div class="collapse navbar-collapse" id=navbarSupportedContent > <ul class="navbar-nav mr-auto"> <li class="nav-item flex-md-fill text-md-center"> <a class=nav-link  href="/downloads/">Download</a> <li class="nav-item flex-md-fill text-md-center"> <a class=nav-link  href="https://docs.julialang.org">Documentation</a> <li class="nav-item active flex-md-fill text-md-center"> <a class=nav-link  href="/blog/">Blog</a> <li class="nav-item flex-md-fill text-md-center"> <a class=nav-link  href="/community/">Community</a> <li class="nav-item flex-md-fill text-md-center"> <a class=nav-link  href="/learning/">Learning</a> <li class="nav-item flex-md-fill text-md-center"> <a class=nav-link  href="/research/">Research</a> <li class="nav-item flex-md-fill text-md-center"> <a class=nav-link  href="/jsoc/">JSoC</a> <li class="nav-item donate flex-md-fill text-md-center"> <a class=github-button  href="https://github.com/sponsors/julialang" data-icon=octicon-heart  data-size=large  aria-label="Sponsor @julialang on GitHub">Sponsor</a> </ul> </div> </nav> </div> <br><br> <div class="container blog-title"> <h1>Analyzing sources of compiler latency in Julia: method invalidations <a type="application/rss+xml" href="https://julialang.org/feed.xml"> <i style="color:#e2802f" class="fa fa-rss-square"></i> </a> </h1> <h3> <span style="font-weight: lighter;"> 10 May 2020 </span> | <span style="font-weight: bold;"></span> <span style="font-weight: bold;">Tim Holy </span> </h3> </div> <div class="container main"><p><a href="https://julialang.org/">The Julia programming language</a> has wonderful flexibility with types, and this allows you to combine packages in unanticipated ways to solve new kinds of problems. Crucially, it achieves this flexibility without sacrificing performance. It does this by running versions of code or algorithms that have been &quot;specialized&quot; for the specific types you are using. Creating these specializations is compilation, and when done on the fly &#40;as is common in Julia&#41; this is called &quot;just in time&quot; &#40;JIT&#41; compilation. Unfortunately, JIT-compilation takes time, and this contributes to <em>latency</em> when you first run Julia code. This problem is often summarized as &quot;time-to-first-plot,&quot; though there is nothing specific about plotting other than the fact that plotting libraries tend to involve large code bases, and these must be JIT-compiled.</p> <p>Many people have spent a lot of time analyzing and reducing Julia&#39;s latency. These efforts have met with considerable success: the upcoming Julia 1.5 feels &quot;snappier&quot; than any recent version I&#39;ve used. But the job of reducing latency is not over yet. Recently I got interested in a specific source of this latency, and this blog post is a summary of some of what I&#39;ve learned about the scope of this problem and opportunities for further improvement.</p> <h1 id=method_invalidation_what_is_it_and_when_does_it_happen ><a href="#method_invalidation_what_is_it_and_when_does_it_happen">Method invalidation: what is it and when does it happen?</a></h1> <h2 id=an_example_compilation_in_the_presence_of_union-splitting ><a href="#an_example_compilation_in_the_presence_of_union-splitting">An example: compilation in the presence of Union-splitting</a></h2> <p>When Julia compiles a method for specific types, it saves the resulting code so that it can be used by any caller. This is crucial to performance, because it means generally compilation has to be done only once for a specific type. To keep things really simple, I&#39;m going to use a very artificial example.</p> <pre><code class="julia hljs">f(x::<span class=hljs-built_in >Int</span>) = <span class=hljs-number >1</span>
+f(x::<span class=hljs-built_in >Bool</span>) = <span class=hljs-number >2</span>
+
+<span class=hljs-keyword >function</span> applyf(container)
+    x1 = f(container[<span class=hljs-number >1</span>])
+    x2 = f(container[<span class=hljs-number >2</span>])
+    <span class=hljs-keyword >return</span> x1 + x2
+<span class=hljs-keyword >end</span></code></pre> <p>If you call <code>applyf&#40;&#91;100, 200&#93;&#41;</code>, it will compile a version of <code>applyf</code> knowing that only <code>f&#40;::Int&#41;</code> will be used: the call will be &quot;hard-wired&quot; into the code that Julia produces. You can see this using <code>@code_typed</code>:</p> <pre><code class="julia hljs">julia&gt; <span class=hljs-meta >@code_typed</span> applyf([<span class=hljs-number >100</span>,<span class=hljs-number >200</span>])
+<span class=hljs-built_in >CodeInfo</span>(
+<span class=hljs-number >1</span> ─     Base.arrayref(<span class=hljs-literal >true</span>, container, <span class=hljs-number >1</span>)::<span class=hljs-built_in >Int64</span>
+│       Base.arrayref(<span class=hljs-literal >true</span>, container, <span class=hljs-number >2</span>)::<span class=hljs-built_in >Int64</span>
+└──     <span class=hljs-keyword >return</span> <span class=hljs-number >2</span>
+) =&gt; <span class=hljs-built_in >Int64</span></code></pre> <p>The compiler itself knows that the answer will be 2, as long as the input array has elements indexable by 1 and 2. &#40;Those <code>arrayref</code> statements enforce bounds-checking, and ensure that Julia will throw an appropriate error if you call <code>applyf&#40;&#91;100&#93;&#41;</code>.&#41;</p> <p>If you pass a <code>Vector&#123;Bool&#125;</code>, it will compile <code>applyf</code> again, this time specializing it for <code>x::Bool</code>:</p> <pre><code class="julia hljs">julia&gt; <span class=hljs-meta >@code_typed</span> applyf([<span class=hljs-literal >true</span>,<span class=hljs-literal >false</span>])
+<span class=hljs-built_in >CodeInfo</span>(
+<span class=hljs-number >1</span> ─     Base.arrayref(<span class=hljs-literal >true</span>, container, <span class=hljs-number >1</span>)::<span class=hljs-built_in >Bool</span>
+│       Base.arrayref(<span class=hljs-literal >true</span>, container, <span class=hljs-number >2</span>)::<span class=hljs-built_in >Bool</span>
+└──     <span class=hljs-keyword >return</span> <span class=hljs-number >4</span>
+) =&gt; <span class=hljs-built_in >Int64</span></code></pre> <p>In this case, you can see that Julia knew those two <code>arrayref</code> statements would return a <code>Bool</code>, and since it knows the value of <code>f&#40;::Bool&#41;</code> it just went ahead and computed the result for you.</p> <p>At the end of these experiments, hidden away in Julia&#39;s &quot;method cache&quot; there will be two <code>MethodInstance</code>s of <code>applyf</code>, one specialized for <code>Vector&#123;Int&#125;</code> and the other specialized for <code>Vector&#123;Bool&#125;</code>. You don&#39;t normally see these, but Julia manages them for you; anytime you write code that calls <code>applyf</code>, it checks to see if this previous compilation work can be reused.</p> <p>For the purpose of this blog post, things start to get especially interesting if we try the following: <pre><code class="julia hljs">julia&gt; c = <span class=hljs-built_in >Any</span>[<span class=hljs-number >1</span>, <span class=hljs-literal >false</span>];
+
+julia&gt; applyf(c)
+<span class=hljs-number >3</span>
+
+julia&gt; <span class=hljs-meta >@code_typed</span> applyf(c)
+<span class=hljs-built_in >CodeInfo</span>(
+<span class=hljs-number >1</span> ── %<span class=hljs-number >1</span>  = Base.arrayref(<span class=hljs-literal >true</span>, container, <span class=hljs-number >1</span>)::<span class=hljs-built_in >Any</span>
+│    %<span class=hljs-number >2</span>  = (<span class=hljs-keyword >isa</span>)(%<span class=hljs-number >1</span>, <span class=hljs-built_in >Bool</span>)::<span class=hljs-built_in >Bool</span>
+└───       goto <span class=hljs-comment >#3 if not %2</span>
+<span class=hljs-number >2</span> ──       goto <span class=hljs-comment >#6</span>
+<span class=hljs-number >3</span> ── %<span class=hljs-number >5</span>  = (<span class=hljs-keyword >isa</span>)(%<span class=hljs-number >1</span>, <span class=hljs-built_in >Int64</span>)::<span class=hljs-built_in >Bool</span>
+└───       goto <span class=hljs-comment >#5 if not %5</span>
+<span class=hljs-number >4</span> ──       goto <span class=hljs-comment >#6</span>
+<span class=hljs-number >5</span> ── %<span class=hljs-number >8</span>  = Main.f(%<span class=hljs-number >1</span>)::<span class=hljs-built_in >Int64</span>
+└───       goto <span class=hljs-comment >#6</span>
+<span class=hljs-number >6</span> ┄─ %<span class=hljs-number >10</span> = <span class=hljs-literal >φ</span> (<span class=hljs-comment >#2 =&gt; 2, #4 =&gt; 1, #5 =&gt; %8)::Int64</span>
+│    %<span class=hljs-number >11</span> = Base.arrayref(<span class=hljs-literal >true</span>, container, <span class=hljs-number >2</span>)::<span class=hljs-built_in >Any</span>
+│    %<span class=hljs-number >12</span> = (<span class=hljs-keyword >isa</span>)(%<span class=hljs-number >11</span>, <span class=hljs-built_in >Bool</span>)::<span class=hljs-built_in >Bool</span>
+└───       goto <span class=hljs-comment >#8 if not %12</span>
+<span class=hljs-number >7</span> ──       goto <span class=hljs-comment >#11</span>
+<span class=hljs-number >8</span> ── %<span class=hljs-number >15</span> = (<span class=hljs-keyword >isa</span>)(%<span class=hljs-number >11</span>, <span class=hljs-built_in >Int64</span>)::<span class=hljs-built_in >Bool</span>
+└───       goto <span class=hljs-comment >#10 if not %15</span>
+<span class=hljs-number >9</span> ──       goto <span class=hljs-comment >#11</span>
+<span class=hljs-number >10</span> ─ %<span class=hljs-number >18</span> = Main.f(%<span class=hljs-number >11</span>)::<span class=hljs-built_in >Int64</span>
+└───       goto <span class=hljs-comment >#11</span>
+<span class=hljs-number >11</span> ┄ %<span class=hljs-number >20</span> = <span class=hljs-literal >φ</span> (<span class=hljs-comment >#7 =&gt; 2, #9 =&gt; 1, #10 =&gt; %18)::Int64</span>
+│    %<span class=hljs-number >21</span> = Base.add_int(%<span class=hljs-number >10</span>, %<span class=hljs-number >20</span>)::<span class=hljs-built_in >Int64</span>
+└───       <span class=hljs-keyword >return</span> %<span class=hljs-number >21</span>
+) =&gt; <span class=hljs-built_in >Int64</span></code></pre> <p>This may seem a lot more complicated, but the take-home message is actually quite simple. First, look at those <code>arrayref</code> statements: they are annotated <code>Any</code>, meaning that Julia can&#39;t predict in advance what they will return. Immediately after each reference, notice that there are two <code>isa</code> statements followed by a <code>ϕ</code>; all of this is essentially equivalent to</p> <pre><code class="julia hljs"><span class=hljs-keyword >if</span> <span class=hljs-keyword >isa</span>(x, <span class=hljs-built_in >Bool</span>)
+    value = <span class=hljs-number >2</span>
+<span class=hljs-keyword >elseif</span> <span class=hljs-keyword >isa</span>(x, <span class=hljs-built_in >Int</span>)
+    value = <span class=hljs-number >1</span>
+<span class=hljs-keyword >else</span>
+    value = f(x)::<span class=hljs-built_in >Int</span>
+<span class=hljs-keyword >end</span></code></pre> <p>This is <a href="https://julialang.org/blog/2018/08/union-splitting/">union-splitting</a>, a key optimization for performance in the face of uncertain types.</p> <h2 id=triggering_method_invalidation ><a href="#triggering_method_invalidation">Triggering method invalidation</a></h2> <p>One point in particular is worth noting: what&#39;s up with that final <code>f&#40;x&#41;::Int</code> call? Didn&#39;t it already handle all the possibilities? Well, all the possibilities <em>so far</em>. But we might next define some new method of <code>f</code> for a different type:</p> <pre><code class="julia hljs">f(::<span class=hljs-built_in >String</span>) = <span class=hljs-number >3</span></code></pre>
+<p>and Julia has prepared the way to make sure it will still give the right answer even if we add new methods to <code>f</code>.</p>
+<p>However, if you try <code>@code_typed applyf&#40;c&#41;</code> again, you&#39;ll notice something curious: Julia has gone to the trouble to create a new-and-improved implementation of <code>applyf</code>, one which also union-splits for <code>String</code>. This brings us to the topic of this blog post: the old compiled method has been <em>invalidated</em>. Given new information–-which here comes from defining or loading new methods–- Julia changes its mind about how things should be implemented, and this forces Julia to recompile <code>applyf</code>.</p>
+<p>If you add fourth and fifth methods,</p>
+<pre><code class="julia hljs">f(::<span class=hljs-built_in >AbstractArray</span>) = <span class=hljs-number >4</span>
+f(::Missing) = <span class=hljs-number >5</span></code></pre>
+<p>then Julia produces</p>
+<pre><code class="julia hljs">julia&gt; <span class=hljs-meta >@code_typed</span> applyf(c)
+<span class=hljs-built_in >CodeInfo</span>(
+<span class=hljs-number >1</span> ─ %<span class=hljs-number >1</span> = Base.arrayref(<span class=hljs-literal >true</span>, container, <span class=hljs-number >1</span>)::<span class=hljs-built_in >Any</span>
+│   %<span class=hljs-number >2</span> = Main.f(%<span class=hljs-number >1</span>)::<span class=hljs-built_in >Any</span>
+│   %<span class=hljs-number >3</span> = Base.arrayref(<span class=hljs-literal >true</span>, container, <span class=hljs-number >2</span>)::<span class=hljs-built_in >Any</span>
+│   %<span class=hljs-number >4</span> = Main.f(%<span class=hljs-number >3</span>)::<span class=hljs-built_in >Any</span>
+│   %<span class=hljs-number >5</span> = (%<span class=hljs-number >2</span> + %<span class=hljs-number >4</span>)::<span class=hljs-built_in >Any</span>
+└──      <span class=hljs-keyword >return</span> %<span class=hljs-number >5</span>
+) =&gt; <span class=hljs-built_in >Any</span></code></pre>
+<p>There are now so many possibilities that Julia just gives up and uses &quot;runtime dispatch&quot; to decide what method of <code>f</code> to call. It doesn&#39;t even try to enforce the fact that <code>f</code> returns and <code>Int</code>, in part because determining such facts takes time &#40;adding to compiler latency&#41; and because functions with many methods typically tend to return multiple types anyway.</p>
+<p>Compiling each of these new implementations takes JIT-time. If Julia knew in advance that you&#39;d arrive at this place, it would never have bothered to produce that first, heavily-optimized version of <code>applyf</code>. But the performance benefits of such optimizations are so large that, when applicable, they are well worth it. For example, if you start a fresh Julia session and just define the <code>f&#40;::Int&#41;</code> and <code>f&#40;::Bool&#41;</code> methods, then</p>
+<pre><code class="julia hljs">julia&gt; <span class=hljs-keyword >using</span> BenchmarkTools
+
+julia&gt; <span class=hljs-meta >@btime</span> applyf($c)
+  <span class=hljs-number >4.659</span> ns (<span class=hljs-number >0</span> allocations: <span class=hljs-number >0</span> bytes)
+<span class=hljs-number >3</span>
+
+julia&gt; f(::<span class=hljs-built_in >String</span>) = <span class=hljs-number >3</span>
+f (generic <span class=hljs-keyword >function</span> with <span class=hljs-number >3</span> methods)
+
+julia&gt; f(::<span class=hljs-built_in >AbstractArray</span>) = <span class=hljs-number >4</span>
+f (generic <span class=hljs-keyword >function</span> with <span class=hljs-number >4</span> methods)
+
+julia&gt; f(::Missing) = <span class=hljs-number >5</span>
+f (generic <span class=hljs-keyword >function</span> with <span class=hljs-number >5</span> methods)
+
+julia&gt; <span class=hljs-meta >@btime</span> applyf($c)
+  <span class=hljs-number >33.537</span> ns (<span class=hljs-number >0</span> allocations: <span class=hljs-number >0</span> bytes)
+<span class=hljs-number >3</span></code></pre> It&#39;s almost a tenfold difference. If <code>applyf</code> is performance-critical, you&#39;ll be very happy that Julia tries to give you the best version it can, given the available information. But this leaves the door open to invalidation, which means recompilation the next time you use <code>applyf</code>. If method invalidation happens often, this might contribute to making Julia &quot;feel&quot; sluggish.</p>
+<h1 id=how_common_is_method_invalidation ><a href="#how_common_is_method_invalidation">How common is method invalidation?</a></h1>
+<p>Unfortunately, method invalidation is pretty common. First, let&#39;s get some baseline statistics. Using the <a href="https://github.com/timholy/MethodAnalysis.jl">MethodAnalysis</a> package &#40;which is at a very early stage of development at the time of this writing&#41;, you can find out that a fresh Julia session &#40;albeit one that has loaded the MethodAnalysis package and used it to perform some analysis&#41; has almost 50,000 <code>MethodInstance</code>s tucked away in its cache. These are mostly for <code>Base</code> and the standard libraries.</p>
+<p>Using some not-yet merged work in both Julia itself and <a href="https://github.com/timholy/SnoopCompile.jl">SnoopCompile</a>, we can count the number of invalidations when we load various packages into a fresh Julia session:</p>
+<table><tr><th>Package<th># of unique invalidations<tr><td>Example<td>0<tr><td>Revise<td>27<tr><td>FixedPointNumbers<td>429<tr><td>SIMD<td>2799<tr><td>StaticArrays<td>2852<tr><td>Optim<td>3171<tr><td>Images<td>3638<tr><td>Flux<td>3697<tr><td>Plots<td>4002<tr><td>DataFrames<td>4048<tr><td>JuMP<td>4666<tr><td>Makie<td>6118<tr><td>DifferentialEquations<td>6777</table>
+<p>You can see that key packages used by large portions of the Julia ecosystem invalidate hundreds or thousands of MethodInstances, sometimes more than 10&#37; of the total number of MethodInstances present before loading the package.</p>
+<h1 id=how_serious_is_method_invalidation ><a href="#how_serious_is_method_invalidation">How serious is method invalidation?</a></h1>
+<p>The next time you want to call functionality that gets invalidated, you have to wait for recompilation. We can illustrate this using everyone&#39;s favorite example, plotting:</p>
+<pre><code class="julia hljs">julia&gt; <span class=hljs-keyword >using</span> Plots
+
+julia&gt; <span class=hljs-meta >@time</span> display(plot(rand(<span class=hljs-number >5</span>)))
+  <span class=hljs-number >7.717729</span> seconds (<span class=hljs-number >15.27</span> M allocations: <span class=hljs-number >797.207</span> MiB, <span class=hljs-number >3.59</span>% gc time)</code></pre>
+<p>As is well known, it&#39;s much faster the second time, because it&#39;s already compiled:</p>
+<pre><code class="julia hljs">julia&gt; <span class=hljs-meta >@time</span> display(plot(rand(<span class=hljs-number >5</span>)))
+  <span class=hljs-number >0.311226</span> seconds (<span class=hljs-number >19.93</span> k allocations: <span class=hljs-number >775.055</span> KiB)</code></pre>
+<p>Now load a package that does a lot of invalidation, and try again:</p>
+<pre><code class="julia hljs">julia&gt; <span class=hljs-keyword >using</span> SIMD
+
+julia&gt; <span class=hljs-meta >@time</span> display(plot(rand(<span class=hljs-number >5</span>)))
+  <span class=hljs-number >7.238336</span> seconds (<span class=hljs-number >26.50</span> M allocations: <span class=hljs-number >1.338</span> GiB, <span class=hljs-number >7.88</span>% gc time)</code></pre>
+<p>Because so much got invalidated by loading SIMD, Julia had to recompile many methods before it could once again produce a plot, so that in terms of time it was almost as expensive as the first usage. The size of the effect varies substantially depending on what task you are trying to achieve and what packages you load to do the invalidation. &#40;If you do this with StaticArrays rather than SIMD there&#39;s no increase in latency, but that&#39;s because StaticArrays was already loaded as an internal dependency of Plots.&#41;</p>
+<p>It&#39;s worth noting that you can escape much of this cost by loading all packages at the outset. Loading time is somewhat increased by invalidation, but the cost of first-time usage is typically larger. When possible, it&#39;s best to get the invalidation out of the way before starting your work.</p>
+<h1 id=can_and_should_this_be_fixed ><a href="#can_and_should_this_be_fixed">Can and should this be fixed?</a></h1>
+<p>Invalidations affect latency on their own, but they also impact other potential strategies for reducing latency. For example, julia creates &quot;precompile&quot; &#40;<code>*.ji</code>&#41; files to speed up package usage. Currently, it saves type-inferred but not &quot;native&quot; code to its precompile files. In principle, saving native code would eliminate latency &#40;for the method and type combinations that have been precompiled&#41;, but this will be ineffective if most of this code ends up getting invalidated. Indeed, it could make it even worse, because you&#39;re doing work &#40;loading more stuff from disk&#41; without much reward. Consequently, reducing invalidation seems likely to be useful on its own, and a necessary prerequisite to other potential strategies.</p>
+<p>As to &quot;can it be fixed?&quot;, that depends on the goal. We will never get rid of invalidation altogether; as the <code>applyf</code> example above shows, invalidation is sometimes necessary if you want both good runtime performance and interactive usage, and this combination is one of the best things about Julia. The real question is whether there are <em>unnecessary</em> invalidations, or a strategy to limit their impact. Determining the answer to that question requires that we develop an understanding the common reasons for the large number of invalidations listed in the table above.</p>
+<h1 id=an_analysis_of_the_causes_of_invalidation ><a href="#an_analysis_of_the_causes_of_invalidation">An analysis of the causes of invalidation</a></h1>
+<p>This section relies on a recent <a href="https://github.com/JuliaLang/julia/pull/35768">pull request to Julia</a> and the <a href="https://github.com/timholy/SnoopCompile.jl/pull/79">invalidations branch</a> of <a href="https://github.com/timholy/SnoopCompile.jl">SnoopCompile</a>. If you try to replicate these, remember that invalidations occur only for methods that have been compiled, which generally means you have to execute them.</p>
+<p>As we analyze causes of invalidation, you&#39;ll note that in some cases we can begin to think about how they might be fixed. However, we&#39;ll save more detailed recommendations for the final section.</p>
+<h2 id=new_methods_with_greater_specificity ><a href="#new_methods_with_greater_specificity">New methods with greater specificity</a></h2>
+<p>It will be simplest to start with a case we already understand, the <code>applyf</code> example above. In a fresh Julia session,</p>
+<pre><code class="julia hljs">f(x::<span class=hljs-built_in >Int</span>) = <span class=hljs-number >1</span>
+f(x::<span class=hljs-built_in >Bool</span>) = <span class=hljs-number >2</span>
+<span class=hljs-keyword >function</span> applyf(container)
+    x1 = f(container[<span class=hljs-number >1</span>])
+    x2 = f(container[<span class=hljs-number >2</span>])
+    <span class=hljs-keyword >return</span> x1 + x2
+<span class=hljs-keyword >end</span>
+c = <span class=hljs-built_in >Any</span>[<span class=hljs-number >1</span>, <span class=hljs-literal >false</span>];
+applyf(c)
+
+<span class=hljs-keyword >using</span> SnoopCompile</code></pre>
+<p>Then, <pre><code class="julia hljs">julia&gt; invalidation_trees(<span class=hljs-meta >@snoopr</span> f(x::<span class=hljs-built_in >String</span>) = <span class=hljs-number >3</span>)
+<span class=hljs-number >1</span>-element <span class=hljs-built_in >Array</span>{SnoopCompile.MethodInvalidations,<span class=hljs-number >1</span>}:
+ insert f(x::<span class=hljs-built_in >String</span>) <span class=hljs-keyword >in</span> Main at REPL[<span class=hljs-number >7</span>]:<span class=hljs-number >1</span> invalidated:
+   mt_backedges: signature <span class=hljs-built_in >Tuple</span>{typeof(f),<span class=hljs-built_in >Any</span>} triggered MethodInstance <span class=hljs-keyword >for</span> applyf(::<span class=hljs-built_in >Array</span>{<span class=hljs-built_in >Any</span>,<span class=hljs-number >1</span>}) (<span class=hljs-number >0</span> children) more specific</code></pre>
+<p>Let&#39;s walk through this output a bit. <code>@snoopr</code> turns on some debugging code inside Julia, and then executes the supplied statment; it returns a fairly opaque list that can be parsed by <code>invalidation_trees</code>. Entries in the returned array correspond to method additions &#40;or deletions, if relevant&#41; that triggers one or more invalidations. In this case, the output means that the new <code>f&#40;x::String&#41;</code> method triggered an invalidation of <code>applyf&#40;::Array&#123;Any,1&#125;&#41;</code>, due to intersection with the signature <code>f&#40;::Any&#41;</code>. <code>&#40;0 children&#41;</code> means that <code>applyf&#40;::Vector&#123;Any&#125;&#41;</code> does not yet have any methods that called it and which in turn need to be invalidated. Finally, <code>more specific</code> &#40;which is printed in cyan&#41; indicate that the new method was strictly more specific than the one that got invalidated.</p>
+<p>As we mentioned above, there are good reasons to think this invalidation is &quot;necessary,&quot; meaning that it is an unavoidable consequence of the choices made to optimize runtime performance while also allowing one to dynamically extend functions. However, that doesn&#39;t mean there is nothing that you, as a developer, could do to eliminate this invalidation. Perhaps there is no real need to ever call <code>applyf</code> with a <code>Vector&#123;Any&#125;</code>; perhaps you can fix one of its upstream callers to supply a concretely-type vector. Or perhaps it may be well-typed, but inference fails to realize that; you could annotate the result of some call with <code>Vector&#123;String&#125;</code>, for instance, if you were certain of the result type. Of course, in some cases you might really need to call <code>applyf</code> with a <code>Vector&#123;Any&#125;</code>, in which case the best choice is to accept this invalidation as necessary and move on.</p>
+<h2 id=new_methods_with_ambiguous_specificity ><a href="#new_methods_with_ambiguous_specificity">New methods with ambiguous specificity</a></h2>
+<p>Now let&#39;s try a real-world case, where the outcomes are more complex.</p>
+<pre><code class="julia hljs">julia&gt; invalidation_trees(<span class=hljs-meta >@snoopr</span> <span class=hljs-keyword >using</span> FixedPointNumbers)
+<span class=hljs-number >6</span>-element <span class=hljs-built_in >Array</span>{SnoopCompile.MethodInvalidations,<span class=hljs-number >1</span>}:
+ insert promote_rule(::<span class=hljs-built_in >Type</span>{T}, ::<span class=hljs-built_in >Type</span>{Tf}) <span class=hljs-keyword >where</span> {T&lt;:Normed, Tf&lt;:<span class=hljs-built_in >AbstractFloat</span>} <span class=hljs-keyword >in</span> FixedPointNumbers at /home/tim/.julia/packages/FixedPointNumbers/w2pxG/src/normed.jl:<span class=hljs-number >310</span> invalidated:
+   backedges: MethodInstance <span class=hljs-keyword >for</span> promote_rule(::<span class=hljs-built_in >Type</span>{<span class=hljs-built_in >Union</span>{}}, ::<span class=hljs-built_in >Type</span>{<span class=hljs-built_in >Float64</span>}) triggered MethodInstance <span class=hljs-keyword >for</span> promote_type(::<span class=hljs-built_in >Type</span>{<span class=hljs-built_in >Float64</span>}, ::<span class=hljs-built_in >Type</span>{S} <span class=hljs-keyword >where</span> S&lt;:<span class=hljs-built_in >Integer</span>) (<span class=hljs-number >0</span> children) less specific
+              MethodInstance <span class=hljs-keyword >for</span> promote_rule(::<span class=hljs-built_in >Type</span>{S} <span class=hljs-keyword >where</span> S&lt;:<span class=hljs-built_in >Integer</span>, ::<span class=hljs-built_in >Type</span>{<span class=hljs-built_in >Float64</span>}) triggered MethodInstance <span class=hljs-keyword >for</span> promote_type(::<span class=hljs-built_in >Type</span>{<span class=hljs-built_in >Float64</span>}, ::<span class=hljs-built_in >Type</span>{S} <span class=hljs-keyword >where</span> S&lt;:<span class=hljs-built_in >Integer</span>) (<span class=hljs-number >0</span> children) ambiguous
+
+ insert oneunit(::<span class=hljs-built_in >Type</span>{X}) <span class=hljs-keyword >where</span> X&lt;:FixedPoint <span class=hljs-keyword >in</span> FixedPointNumbers at /home/tim/.julia/packages/FixedPointNumbers/w2pxG/src/FixedPointNumbers.jl:<span class=hljs-number >93</span> invalidated:
+   backedges: MethodInstance <span class=hljs-keyword >for</span> oneunit(::<span class=hljs-built_in >Type</span>{T} <span class=hljs-keyword >where</span> T&lt;:AbstractChar) triggered MethodInstance <span class=hljs-keyword >for</span> first(::Base.OneTo{T}) <span class=hljs-keyword >where</span> T&lt;:AbstractChar (<span class=hljs-number >0</span> children) ambiguous
+   <span class=hljs-number >7</span> mt_cache
+
+ insert one(::<span class=hljs-built_in >Type</span>{X}) <span class=hljs-keyword >where</span> X&lt;:FixedPoint <span class=hljs-keyword >in</span> FixedPointNumbers at /home/tim/.julia/packages/FixedPointNumbers/w2pxG/src/FixedPointNumbers.jl:<span class=hljs-number >94</span> invalidated:
+   mt_backedges: signature <span class=hljs-built_in >Tuple</span>{typeof(one),<span class=hljs-built_in >Type</span>{T} <span class=hljs-keyword >where</span> T&lt;:AbstractChar} triggered MethodInstance <span class=hljs-keyword >for</span> oneunit(::<span class=hljs-built_in >Type</span>{T} <span class=hljs-keyword >where</span> T&lt;:AbstractChar) (<span class=hljs-number >0</span> children) ambiguous
+   <span class=hljs-number >5</span> mt_cache
+
+ insert sizeof(::<span class=hljs-built_in >Type</span>{X}) <span class=hljs-keyword >where</span> X&lt;:FixedPoint <span class=hljs-keyword >in</span> FixedPointNumbers at /home/tim/.julia/packages/FixedPointNumbers/w2pxG/src/FixedPointNumbers.jl:<span class=hljs-number >100</span> invalidated:
+   backedges: MethodInstance <span class=hljs-keyword >for</span> sizeof(::<span class=hljs-built_in >DataType</span>) triggered MethodInstance <span class=hljs-keyword >for</span> Base.CyclePadding(::<span class=hljs-built_in >DataType</span>) (<span class=hljs-number >25</span> children) ambiguous
+              MethodInstance <span class=hljs-keyword >for</span> sizeof(::<span class=hljs-built_in >Type</span>) triggered MethodInstance <span class=hljs-keyword >for</span> padding(::<span class=hljs-built_in >DataType</span>) (<span class=hljs-number >3</span> children) more specific
+              MethodInstance <span class=hljs-keyword >for</span> sizeof(::<span class=hljs-built_in >Type</span>{T} <span class=hljs-keyword >where</span> T) triggered MethodInstance <span class=hljs-keyword >for</span> array_subpadding(::<span class=hljs-built_in >Type</span>{T} <span class=hljs-keyword >where</span> T, ::<span class=hljs-built_in >Type</span>{T} <span class=hljs-keyword >where</span> T) (<span class=hljs-number >0</span> children) more specific
+   <span class=hljs-number >1</span> mt_cache
+
+ insert reduce_empty(::typeof(Base.mul_prod), ::<span class=hljs-built_in >Type</span>{F}) <span class=hljs-keyword >where</span> F&lt;:FixedPoint <span class=hljs-keyword >in</span> FixedPointNumbers at /home/tim/.julia/packages/FixedPointNumbers/w2pxG/src/FixedPointNumbers.jl:<span class=hljs-number >225</span> invalidated:
+   backedges: MethodInstance <span class=hljs-keyword >for</span> reduce_empty(::<span class=hljs-built_in >Function</span>, ::<span class=hljs-built_in >Type</span>{T} <span class=hljs-keyword >where</span> T) triggered MethodInstance <span class=hljs-keyword >for</span> reduce_empty(::Base.BottomRF{typeof(max)}, ::<span class=hljs-built_in >Type</span>{<span class=hljs-built_in >VersionNumber</span>}) (<span class=hljs-number >136</span> children) more specific
+   <span class=hljs-number >3</span> mt_cache
+
+ insert (::<span class=hljs-built_in >Type</span>{X})(x::<span class=hljs-built_in >Real</span>) <span class=hljs-keyword >where</span> X&lt;:FixedPoint <span class=hljs-keyword >in</span> FixedPointNumbers at /home/tim/.julia/packages/FixedPointNumbers/w2pxG/src/FixedPointNumbers.jl:<span class=hljs-number >51</span> invalidated:
+   mt_backedges: signature <span class=hljs-built_in >Tuple</span>{<span class=hljs-built_in >Type</span>{T} <span class=hljs-keyword >where</span> T&lt;:<span class=hljs-built_in >Int64</span>,<span class=hljs-built_in >Int64</span>} triggered MethodInstance <span class=hljs-keyword >for</span> convert(::<span class=hljs-built_in >Type</span>{T}, ::<span class=hljs-built_in >Int64</span>) <span class=hljs-keyword >where</span> T&lt;:<span class=hljs-built_in >Int64</span> (<span class=hljs-number >1</span> children) ambiguous
+   backedges: MethodInstance <span class=hljs-keyword >for</span> (::<span class=hljs-built_in >Type</span>{T} <span class=hljs-keyword >where</span> T&lt;:AbstractChar)(::<span class=hljs-built_in >Int32</span>) triggered MethodInstance <span class=hljs-keyword >for</span> +(::AbstractChar, ::<span class=hljs-built_in >UInt8</span>) (<span class=hljs-number >157</span> children) ambiguous
+              MethodInstance <span class=hljs-keyword >for</span> (::<span class=hljs-built_in >Type</span>{T} <span class=hljs-keyword >where</span> T&lt;:AbstractChar)(::<span class=hljs-built_in >UInt32</span>) triggered MethodInstance <span class=hljs-keyword >for</span> (::<span class=hljs-built_in >Type</span>{T} <span class=hljs-keyword >where</span> T&lt;:AbstractChar)(::<span class=hljs-built_in >UInt32</span>) (<span class=hljs-number >197</span> children) ambiguous
+   <span class=hljs-number >1</span> mt_cache</code></pre>
+<p>This list is ordered from least-consequential to most consequential in terms of total number of invalidations. The final entry, for <code>&#40;::Type&#123;X&#125;&#41;&#40;x::Real&#41; where X&lt;:FixedPoint</code>, triggered the invalidation of what nominally appear to be more than 350 MethodInstances. &#40;It is not certain that these methods are all disjoint from one another.&#41; In contrast, the first entry is responsible for just two invalidations.</p>
+<p>One does not have to look at this list for very long to see that the majority of the invalidated methods are due to <a href="https://docs.julialang.org/en/latest/manual/methods/#man-ambiguities-1">method ambiguity</a>. From</p>
+<pre><code class="julia hljs">julia&gt; which(<span class=hljs-built_in >Char</span>, (<span class=hljs-built_in >Int32</span>,))
+(::<span class=hljs-built_in >Type</span>{T})(x::<span class=hljs-built_in >Number</span>) <span class=hljs-keyword >where</span> T&lt;:AbstractChar <span class=hljs-keyword >in</span> Base at char.jl:<span class=hljs-number >48</span></code></pre>
+<p>You may find it surprising that this method signature is ambiguous with <code>&#40;::Type&#123;X&#125;&#41;&#40;x::Real&#41; where X&lt;:FixedPoint</code>: after all, an <code>AbstractChar</code> is quite different from a <code>FixedPoint</code> number. We can discover why with</p>
+<pre><code class="julia hljs">julia&gt; typeintersect(FixedPoint, AbstractChar)
+<span class=hljs-built_in >Union</span>{}</code></pre>
+<p>which shows that there is one type, the &quot;empty type&quot;, that lies in their intersection.</p>
+<p>There are good reasons to believe that the right way to fix such methods is to exclude ambiguous pairs from invalidation. If such a change gets made to Julia, then all the ones marked &quot;ambiguous&quot; should magically disappear. Consequently, we can turn our attention to other cases. <code>reduce_empty&#40;::typeof&#40;Base.mul_prod&#41;, ::Type&#123;F&#125;&#41; where F&lt;:FixedPoint</code> is strictly more specific than <code>reduce_empty&#40;::Function, ::Type&#123;T&#125; where T&#41;</code>. It&#39;s curious that this is listed as a backedge of <code>reduce_empty&#40;::Base.BottomRF&#123;typeof&#40;max&#41;&#125;, ::Type&#123;VersionNumber&#125;&#41;</code>, since the latter is a concrete signature on its own. This case too seems like something that should be fixed in Julia&#39;s invalidation logic.</p>
+<p>Moving backward, we get to <code>sizeof&#40;::Type&#123;X&#125;&#41; where X&lt;:FixedPoint</code>. Simply put, this looks like a method that we don&#39;t need; perhaps it dates from some confusion, or an era where perhaps it was necessary. So we&#39;ve discovered the first place where a developer could do something to productively decrease the number of invalidations, in this case by just deleting the method.</p>
+<p>You&#39;ll also notice one example where the new method is <em>less specific</em>. It is not clear why such methods should be invalidating, and this may be a Julia bug.</p>
+<h2 id=partial_specialization ><a href="#partial_specialization">Partial specialization</a></h2>
+<p>If you try</p>
+<pre><code class="julia hljs">julia&gt; trees = invalidation_trees(<span class=hljs-meta >@snoopr</span> <span class=hljs-keyword >using</span> StaticArrays)</code></pre>
+<p>you&#39;ll see a much longer output. A large number of invalidations derive from the fact that StaticArrays defines a method for <code>&#33;&#61;</code>, which invalidates the fallback definition</p>
+<pre><code class="julia hljs">!=(x, y) = !(x == y)</code></pre>
+<p>Since such definitions account for hundreds of nominal invalidations, it would be well worth considering whether it is possible to delete the custom <code>&#33;&#61;</code> methods. For example, if they are purely for internal use you could modify each caller to use the default method.</p>
+<p>The vast majority of the rest appear to derive from ambiguities. However, one more interesting case we&#39;ve not seen before is</p>
+<pre><code class="julia hljs">julia&gt; tree = trees[<span class=hljs-keyword >end</span>-<span class=hljs-number >7</span>]
+insert unsafe_convert(::<span class=hljs-built_in >Type</span>{<span class=hljs-built_in >Ptr</span>{T}}, m::Base.RefValue{FA}) <span class=hljs-keyword >where</span> {N, T, D, FA&lt;:FieldArray{N,T,D}} <span class=hljs-keyword >in</span> StaticArrays at /home/tim/.julia/packages/StaticArrays/mlIi1/src/FieldArray.jl:<span class=hljs-number >124</span> invalidated:
+   mt_backedges: signature <span class=hljs-built_in >Tuple</span>{typeof(Base.unsafe_convert),<span class=hljs-built_in >Type</span>{<span class=hljs-built_in >Ptr</span>{_A}} <span class=hljs-keyword >where</span> _A,Base.RefValue{_A} <span class=hljs-keyword >where</span> _A} triggered MethodInstance <span class=hljs-keyword >for</span> unsafe_convert(::<span class=hljs-built_in >Type</span>{<span class=hljs-built_in >Ptr</span>{Nothing}}, ::Base.RefValue{_A} <span class=hljs-keyword >where</span> _A) (<span class=hljs-number >159</span> children) more specific</code></pre>
+<p>In this case, the signature that triggered the invalidation, <code>Base.unsafe_convert&#40;::Type&#123;Ptr&#123;_A&#125;&#125; where _A, ::Base.RefValue&#123;_A&#125; where _A&#41;</code>, has been only partially specified: it depends on a type parameter <code>_A</code>. Where does such a signature come from? You can extract this line with</p>
+<pre><code class="julia hljs">julia&gt; trigger = tree[:mt_backedges, <span class=hljs-number >1</span>]
+MethodInstance <span class=hljs-keyword >for</span> unsafe_convert(::<span class=hljs-built_in >Type</span>{<span class=hljs-built_in >Ptr</span>{Nothing}}, ::Base.RefValue{_A} <span class=hljs-keyword >where</span> _A) at depth <span class=hljs-number >0</span> with <span class=hljs-number >159</span> children
+
+julia&gt; trigger.children
+<span class=hljs-number >5</span>-element <span class=hljs-built_in >Array</span>{SnoopCompile.InstanceTree,<span class=hljs-number >1</span>}:
+ MethodInstance <span class=hljs-keyword >for</span> unsafe_convert(::<span class=hljs-built_in >Type</span>{<span class=hljs-built_in >Ptr</span>{Nothing}}, ::Base.RefValue{_A} <span class=hljs-keyword >where</span> _A) at depth <span class=hljs-number >1</span> with <span class=hljs-number >0</span> children
+ MethodInstance <span class=hljs-keyword >for</span> unsafe_convert(::<span class=hljs-built_in >Type</span>{<span class=hljs-built_in >Ptr</span>{T}}, ::Base.RefValue{<span class=hljs-built_in >Tuple</span>{<span class=hljs-built_in >Vararg</span>{T,N}}}) <span class=hljs-keyword >where</span> {N, T} at depth <span class=hljs-number >1</span> with <span class=hljs-number >2</span> children
+ MethodInstance <span class=hljs-keyword >for</span> _show_default(::Base.GenericIOBuffer{<span class=hljs-built_in >Array</span>{<span class=hljs-built_in >UInt8</span>,<span class=hljs-number >1</span>}}, ::<span class=hljs-built_in >Any</span>) at depth <span class=hljs-number >1</span> with <span class=hljs-number >113</span> children
+ MethodInstance <span class=hljs-keyword >for</span> _show_default(::<span class=hljs-built_in >IOContext</span>{Base.GenericIOBuffer{<span class=hljs-built_in >Array</span>{<span class=hljs-built_in >UInt8</span>,<span class=hljs-number >1</span>}}}, ::<span class=hljs-built_in >Any</span>) at depth <span class=hljs-number >1</span> with <span class=hljs-number >37</span> children
+ MethodInstance <span class=hljs-keyword >for</span> _show_default(::<span class=hljs-built_in >IOContext</span>{REPL.Terminals.TTYTerminal}, ::<span class=hljs-built_in >Any</span>) at depth <span class=hljs-number >1</span> with <span class=hljs-number >2</span> children</code></pre>
+<p>and see all the <code>MethodInstance</code>s that called this one. You&#39;ll notice three <code>_show_default</code> <code>MethodInstance</code>s here; a little digging reveals that this is defined as</p>
+<pre><code class="julia hljs"><span class=hljs-keyword >function</span> _show_default(io::<span class=hljs-built_in >IO</span>, <span class=hljs-meta >@nospecialize</span>(x))
+    t = typeof(x)
+    ...
+<span class=hljs-keyword >end</span></code></pre>
+<p>So the <code>@nospecialize</code> annotation, designed to reduce the number of cases when <code>_show_default</code> needs to be recompiled, causes the methods <em>it</em> uses to become triggers for invalidation. So here we see that a technique that very successfully reduces latencies also has a side effect of increasing the number of invalidations. Fortunately, these cases of partial specialization also seem to count as ambiguities, and so if ambiguous matches are eliminated it should also solve partial specialization.</p>
+<h2 id=some_summary_statistics ><a href="#some_summary_statistics">Some summary statistics</a></h2>
+<p>Let&#39;s go back to our table above, and augment it with &quot;sources&quot; of invalidation:</p>
+<table><tr><th>Package<th>greater specificity<th>lesser specificity<th>ambiguity<tr><td>Example<td>0<td>0<td>0<tr><td>Revise<td>6<td>0<td>0<tr><td>FixedPointNumbers<td>139<td>0<td>381<tr><td>SIMD<td>3040<td>0<td>1017<tr><td>StaticArrays<td>1382<td>13<td>2540<tr><td>Optim<td>1385<td>13<td>2941<tr><td>Images<td>1513<td>113<td>3102<tr><td>Flux<td>1177<td>49<td>4107<tr><td>Plots<td>1104<td>48<td>4604<tr><td>DataFrames<td>2725<td>0<td>2680<tr><td>JuMP<td>1549<td>14<td>5164<tr><td>Makie<td>5147<td>92<td>4145<tr><td>DifferentialEquations<td>3776<td>53<td>7419</table>
+<p>The numbers in this table don&#39;t add up to those in the first, for a variety of reasons &#40;here there is no attempt to remove duplicates, here we don&#39;t count &quot;mt_cache&quot; invalidations which were included in the first table, etc.&#41;. In general terms, the last two columns should probably be fixed by changes in how Julia does invalidations; the first column indicates invalidations that should either be fixed in packages, Julia&#39;s own code, or will need to remain unfixed. The good news is that much will likely be fixed by &quot;automated&quot; means, but it appears that there will need to be a second round in which package developers inspect individual invalidations to determine what, if anything, can be done to remediate them.</p>
+</p>
+</div><br><br>
+
+
+    
+    
+        
+
+
+    
+
+    <style>
+.footer-copy {
+  padding-top: 2em;
+  margin-left: auto;
+  margin-right: auto;}
+.footer-copy ul#fmenu {
+    display:inline-block;
+}
+.footer-copy ul#fmenu li a {
+  font-size: 95%;
+  color: #fff;}
+.footer-copy ul#fmenu li {
+  list-style: none;}
+.footer-copy ul#fmenu a#fmhead {
+  font-size: 110%;
+  font-weight: bold;
+  color: #7a95dd;}
+.footer-copy #footer-bottom {
+  font-size:90%;}
+.footer-copy #footer-bottom a {
+  color: #7a95dd;}
+</style>
+
+<footer class="container-fluid footer-copy">
+  <div class=container >
+    <div class=row >
+      <ul id=fmenu >
+        <li><a id=fmhead  href="/project">About</a>
+        <li><a href="/about/help">Get Help</a>
+        <li><a href="/community/#julia_github_groups">Domains</a>
+        <li><a href="/blog/2019/02/julia-entities/">Governance</a>
+        <li><a href="/research/#publications">Publications</a>
+        <li><a href="/research/#sponsors">Sponsors</a>
+      </ul>
+      <ul id=fmenu >
+        <li><a id=fmhead  href="/downloads/">Downloads</a>
+        <li><a href="/downloads/">All Releases</a>
+        <li><a href="https://github.com/JuliaLang/julia">Source Code</a>
+        <li><a href="/downloads/#current_stable_release">Current Stable Release</a>
+        <li><a href="/downloads/#long_term_support_release">Longterm Support Release</a>
+        <li><a href="/downloads/platform/#platform_specific_instructions_for_unofficial_binaries">Unofficial Binaries</a>
+      </ul>
+      <ul id=fmenu >
+        <li><a id=fmhead  href="https://docs.julialang.org/en/v1/">Documentation</a>
+        <li><a href="https://www.youtube.com/user/JuliaLanguage">Video Talks</a>
+        <li><a href="/learning/getting-started/">Beginners Guide</a>
+        <li><a href="https://docs.julialang.org/en/v1/manual/faq/">FAQ</a>
+        <li><a href="/learning/#books">Julia Books</a>
+      </ul>
+      <ul id=fmenu >
+        <li><a id=fmhead  href="/community/">Community</a>
+        <li><a href="/community/#2019_julia_user_and_developer_survey">User/Developer Survey</a>
+        <li><a href="/diversity/">Diversity</a>
+        <li><a href="/community/#official_channels">Official Channels</a>
+        <li><a href="/community/standards/">Code of Conduct</a>
+        <li><a href="/community/#events">Events</a>
+      </ul>
+      <ul id=fmenu >
+        <li><a id=fmhead  href="https://github.com/JuliaLang/julia/blob/master/CONTRIBUTING.md">Contributing</a>
+        <li><a href="https://github.com/JuliaLang/julia/issues">Issue Tracker</a>
+        <li><a href="https://github.com/JuliaLang/julia/security/policy">Report a Security Issue</a>
+        <li><a href="https://github.com/issues?q=is%3Aopen+is%3Aissue+language%3AJulia+label%3A%22help+wanted%22">Help Wanted Issues</a>
+        <li><a href="https://github.com/issues?q=is%3Aopen+is%3Aissue+language%3AJulia+label%3A%22good+first+issue%22+">Good First Issue</a>
+        <li><a href="https://docs.julialang.org/en/v1/devdocs/reflection/">Dev Docs</a>
+      </ul>
+    </div>
+    <div id=footer-bottom  class=row >
+      <div class="col-md-10 py-2">
+        <p>Website built with <a href="https://franklinjl.org">Franklin.jl</a> - a native Julia package for building websites.
+          We thank <a href="https://www.fastly.com">Fastly</a> for their generous infrastructure support.
+        <p>©2020 JuliaLang.org <a href="https://github.com/JuliaLang/www.julialang.org/graphs/contributors">contributors</a>. The content on this website is made available under the <a href="https://github.com/JuliaLang/www.julialang.org/blob/master/LICENSE.md">MIT license</a>.
+      </div>
+      <div class="col-md-2 py-2">
+        <a class=github-button  href="https://github.com/sponsors/julialang" data-icon=octicon-heart  data-size=large  aria-label="Sponsor @julialang on GitHub">Sponsor</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script src="/libs/jquery/jquery.min.js"></script>
+<script src="/libs/bootstrap/bootstrap.min.js"></script>
+<script src="/libs/platform.js"></script>
