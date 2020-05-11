@@ -178,7 +178,7 @@ applyf(c)</code></pre>
    6 mt_cache
 
 
-<span class=hljs-meta >julia&gt;</span><span class=julia > mi, invtree = tree[:backedges,<span class=hljs-number >1</span>]
+<span class=hljs-meta >julia&gt;</span><span class=julia > mi, node = tree[:backedges,<span class=hljs-number >1</span>]
 </span>MethodInstance for (::Type{T} where T&lt;:AbstractChar)(::Int32) =&gt; MethodInstance for +(::AbstractChar, ::UInt8) at depth 0 with 157 children
 
 <span class=hljs-meta >julia&gt;</span><span class=julia > mi.def
@@ -202,7 +202,16 @@ applyf(c)</code></pre>
 <pre><code class="julia-repl hljs"><span class=hljs-meta >julia&gt;</span><span class=julia > tree = trees[<span class=hljs-keyword >end</span>-<span class=hljs-number >1</span>]
 </span>insert reduce_empty(::typeof(Base.mul_prod), ::Type{F}) where F&lt;:FixedPoint in FixedPointNumbers at /home/tim/.julia/packages/FixedPointNumbers/w2pxG/src/FixedPointNumbers.jl:225 invalidated:
    backedges: MethodInstance for reduce_empty(::Function, ::Type{T} where T) triggered MethodInstance for reduce_empty(::Base.BottomRF{typeof(max)}, ::Type{VersionNumber}) (136 children) more specific</code></pre>
-<code>reduce_empty&#40;::typeof&#40;Base.mul_prod&#41;, ::Type&#123;F&#125;&#41; where F&lt;:FixedPoint</code> is strictly more specific than <code>reduce_empty&#40;::Function, ::Type&#123;T&#125; where T&#41;</code>. This might look like one of those &quot;necessary&quot; invalidations. Below we&#39;ll analyze this in far greater detail and discover some possible fixes.</p>
+<code>reduce_empty&#40;::typeof&#40;Base.mul_prod&#41;, ::Type&#123;F&#125;&#41; where F&lt;:FixedPoint</code> is strictly more specific than <code>reduce_empty&#40;::Function, ::Type&#123;T&#125; where T&#41;</code>. This might look like one of those &quot;necessary&quot; invalidations. However, even though it&#39;s marked &quot;more specific,&quot; the new method <code>reduce_empty&#40;::typeof&#40;Base.add_sum&#41;, ::Type&#123;F&#125;&#41; where F&lt;:FixedPoint</code> can&#39;t be reached from a call <code>reduce_empty&#40;::Base.BottomRF&#123;typeof&#40;max&#41;&#125;, ::Type&#123;VersionNumber&#125;&#41;</code>:</p>
+<pre><code class="julia-repl hljs"><span class=hljs-meta >julia&gt;</span><span class=julia > mi, node = tree[:backedges, <span class=hljs-number >1</span>]
+</span>MethodInstance for reduce_empty(::Function, ::Type{T} where T) =&gt; MethodInstance for reduce_empty(::Base.BottomRF{typeof(max)}, ::Type{VersionNumber}) at depth 0 with 143 children
+
+<span class=hljs-meta >julia&gt;</span><span class=julia > node.mi      <span class=hljs-comment ># this is the MethodInstance that called `mi`</span>
+</span>MethodInstance for reduce_empty(::Base.BottomRF{typeof(max)}, ::Type{VersionNumber})
+
+<span class=hljs-meta >julia&gt;</span><span class=julia > typeintersect(tree.method.sig, node.mi.specTypes)
+</span>Union{}</code></pre>
+<p>This is is a consequence of the fact that Julia&#39;s compiler has chosen not to specialize the argument types, and <code>reduce_empty&#40;::Function, ::Type&#123;T&#125; where T&#41;</code> is broader than what could be determined from the caller. Thus, while it looks like a case of greater specificity, in fact this is more analogous to the &quot;partial specialization&quot; described below.</p>
 <p>Moving backward another step, we get to <code>sizeof&#40;::Type&#123;X&#125;&#41; where X&lt;:FixedPoint</code>. Simply put, this looks like a method that we don&#39;t need; perhaps it dates from some confusion, or an era where perhaps it was necessary. So we&#39;ve discovered an easy place where a developer could do something to productively decrease the number of invalidations, in this case by just deleting the method.</p>
 <p>You&#39;ll also notice one example where the new method is <em>less specific</em>. It is not clear why such methods should be invalidating, and this may be a Julia bug.</p>
 <h3 id=partial_specialization ><a href="#partial_specialization">Partial specialization</a></h3>
@@ -252,7 +261,7 @@ applyf(c)</code></pre>
 <p>The other case was a call from <code>Pkg</code> of <code>keys</code> on an AbstractDict of unknown type &#40;due to a caller&#39;s <code>@nospecialize</code> annotation&#41;. Replacing <code>keys&#40;dct&#41;</code> with <code>Base.KeySet&#40;dct&#41;</code> &#40;which is the default return value of <code>keys</code>&#41; eliminated a very consequential invalidation, one that triggered seconds-long latencies in the next <code>Pkg</code> command after loading Revise. The benefits of this change in Pkg&#39;s code went far beyond helping Revise; any package depending on the OrderedCollections package &#40;which is a dependency of Revise and what actually triggered the invalidation&#41; got the same benefit. With these and a few other relatively simple changes, loading Revise no longer forces Julia to recompile much of Pkg&#39;s code the next time you try to update packages.</p>
 <h3 id=redirecting_call_chains ><a href="#redirecting_call_chains">Redirecting call chains</a></h3>
 <p>Let&#39;s return to our FixedPointNumbers <code>reduce_empty</code> example above. A little prodding as done above reveals that this corresponds to the definition</p>
-<pre><code class="julia-repl hljs"><span class=hljs-meta >julia&gt;</span><span class=julia > mi, invtree = tree[:backedges, <span class=hljs-number >1</span>]
+<pre><code class="julia-repl hljs"><span class=hljs-meta >julia&gt;</span><span class=julia > mi, node = tree[:backedges, <span class=hljs-number >1</span>]
 </span>MethodInstance for reduce_empty(::Function, ::Type{T} where T) =&gt; MethodInstance for reduce_empty(::Base.BottomRF{typeof(max)}, ::Type{VersionNumber}) at depth 0 with 136 children
 
 <span class=hljs-meta >julia&gt;</span><span class=julia > mi
@@ -266,24 +275,22 @@ applyf(c)</code></pre>
 <pre><code class="julia-repl hljs"><span class=hljs-meta >julia&gt;</span><span class=julia > op = Base.BottomRF(Base.max)
 </span>Base.BottomRF{typeof(max)}(max)
 
-<span class=hljs-meta >julia&gt;</span><span class=julia > Base.reduce_empty(op, <span class=hljs-literal >VERSION</span>)
+<span class=hljs-meta >julia&gt;</span><span class=julia > Base.reduce_empty(op, <span class=hljs-built_in >VersionNumber</span>)
 </span>ERROR: ArgumentError: reducing over an empty collection is not allowed
 Stacktrace:
  [1] _empty_reduce_error() at ./reduce.jl:299
- [2] reduce_empty(::Function, ::VersionNumber) at ./reduce.jl:309
- [3] reduce_empty(::Base.BottomRF{typeof(max)}, ::VersionNumber) at ./reduce.jl:324
- [4] top-level scope at REPL[36]:1</code></pre>
+ [2] reduce_empty(::Function, ::Type{T} where T) at ./reduce.jl:309
+ [3] reduce_empty(::Base.BottomRF{typeof(max)}, ::Type{T} where T) at ./reduce.jl:324
+ [4] top-level scope at REPL[2]:1</code></pre>
 <p>This essentially means that no &quot;neutral element&quot; has been defined for this operation and type.</p>
-<p>Can we avoid this fallback? One approach is to define the method directly: modify Julia to add</p>
+<p>For the purposes of illustration, let&#39;s ignore the fact that this might be a case where the fix might in principle be made in the compiler. Using ordinary Julia code, can we avoid this fallback? One approach is to define the method directly: modify Julia to add</p>
 <pre><code class="julia hljs">reduce_empty(::Base.BottomRF{typeof(max)}, ::<span class=hljs-built_in >Type</span>{<span class=hljs-built_in >VersionNumber</span>}) = _empty_reduce_error()</code></pre>
-<p>so that we get the same result but don&#39;t rely on the fallback. But perhaps a better approach is to see who&#39;s calling it:</p>
-<pre><code class="julia-repl hljs"><span class=hljs-meta >julia&gt;</span><span class=julia > invtree.mi
-</span>MethodInstance for reduce_empty(::Base.BottomRF{typeof(max)}, ::Type{VersionNumber})
-
-<span class=hljs-meta >julia&gt;</span><span class=julia > invtree.mi.def
-</span>reduce_empty(op::Base.BottomRF, T) in Base at reduce.jl:324
-
-<span class=hljs-meta >julia&gt;</span><span class=julia > invtree.children
+<p>so that we get the same result but don&#39;t rely on the fallback.</p>
+<p>Given our observation above that this <em>apparent</em> invalidating method is not actually reachable by this call chain, another approach is to force the compiler to specialize the method by adding type parameters:</p>
+<pre><code class="julia hljs">reduce_empty(op::F, ::<span class=hljs-built_in >Type</span>{T}) <span class=hljs-keyword >where</span> {F,T} = _empty_reduce_error()</code></pre>
+<p>While there&#39;s little actual reason to force specialization on a method that just issues an error, in this case it does have the effect of allowing the compiler to realize that our new method is not reachable from this call path.</p>
+<p>For addressing this purely at the level of Julia code, perhaps the best approach is to see who&#39;s calling it:</p>
+<pre><code class="julia-repl hljs"><span class=hljs-meta >julia&gt;</span><span class=julia > node.children
 </span>5-element Array{SnoopCompile.InstanceTree,1}:
  MethodInstance for reduce_empty_iter(::Base.BottomRF{typeof(max)}, ::Set{VersionNumber}, ::Base.HasEltype) at depth 1 with 38 children
  MethodInstance for reduce_empty(::Base.BottomRF{typeof(max)}, ::Type{Int64}) at depth 1 with 39 children
@@ -291,7 +298,7 @@ Stacktrace:
  MethodInstance for mapreduce_empty(::typeof(identity), ::Pkg.Resolve.var"#132#134"{Pkg.Resolve.var"#smx#133"{Pkg.Resolve.Graph,Pkg.Resolve.Messages}}, ::Type{Int64}) at depth 1 with 10 children
  MethodInstance for mapreduce_empty(::typeof(identity), ::typeof(max), ::Type{Int64}) at depth 1 with 23 children</code></pre>
 <p>This illustrates how to work with an <code>InstanceTree</code>: you access the MethodInstance through <code>.mi</code> and its callers through <code>.children</code>. Let&#39;s start with the first one:</p>
-<pre><code class="julia-repl hljs"><span class=hljs-meta >julia&gt;</span><span class=julia > node = invtree.children[<span class=hljs-number >1</span>]
+<pre><code class="julia-repl hljs"><span class=hljs-meta >julia&gt;</span><span class=julia > node = node.children[<span class=hljs-number >1</span>]
 </span>MethodInstance for reduce_empty_iter(::Base.BottomRF{typeof(max)}, ::Set{VersionNumber}, ::Base.HasEltype) at depth 1 with 38 children</code></pre>
 <p>We can display this whole branch of the tree using <code>show&#40;node&#41;</code>:</p>
 <pre><code class="julia-repl hljs"><span class=hljs-meta >julia&gt;</span><span class=julia > show(node)
