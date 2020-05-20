@@ -10,6 +10,17 @@ DifferentialEquations.jl is a widely used Julia library for solving ordinary, st
 
 DifferentialEquations.jl's documentation at [DiffEqDocs.jl](https://github.com/SciML/DiffEqDocs.jl) was one of the first [Documenter.jl](https://github.com/JuliaDocs/Documenter.jl) projects, and as such much of its internals are in dire need of updates. Notably, automated reference handling would fix issues with dead links that are not uncommon. Additionally, none of the examples run doc tests, and thus currently the organization relies on user issues to find out when to update the pages. Lastly, there are many requests for a PDF form of this documentation since many of the materials are only featured in this form, yet sadly there is currently no PDF builder associated with DiffEqDocs.jl even though Documenter.jl has recently gained this functionality.
 
+### Unified Organization Documentation
+
+[SciML](https://sciml.ai/) is the scientific machine learning organization. However, its documentation is spread amongst many different fairly large packages:
+
+- [DifferentialEquations.jl](https://docs.sciml.ai/latest/)
+- [DiffEqFlux.jl](https://diffeqflux.sciml.ai/dev/)
+- [ModelingToolkit.jl](https://mtk.sciml.ai/dev/)
+- [Surrogates.jl](https://surrogates.sciml.ai/latest/)
+
+Just to name a few. One project would be to create a unified scientific machine learning documentation that would make it easy to move between all of these different package docs and understand the cohesive organization.
+
 ### Tutorial Writing
 
 The JuliaDiffEq organization hosts the [DiffEqTutorials.jl](https://github.com/SciML/DiffEqTutorials.jl) repository which auto-builds websites and pdfs from tutorials. Tutorials generally center features of DifferentialEquations.jl or on application domains. Technical writers who have an expertise in areas like biological modeling may wish to contribute tutorials that showcase how to use DifferentialEquations.jl to solve problems arising in their discipline.
