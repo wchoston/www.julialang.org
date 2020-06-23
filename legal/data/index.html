@@ -66,7 +66,7 @@ Julia-System: x86_64-apple-darwin14-libgfortran5
 Julia-CI-Variables: APPVEYOR=n;CI=n;CIRCLECI=n;CONTINUOUS_INTEGRATION=n;GITHUB_ACTIONS=n;GITLAB_CI=n;JULIA_CI=n;TF_BUILD=n;TRAVIS=n
 Julia-HyperLogLog: 405,2
 Julia-Interactive: true</code></pre>
-<p>The <code>Julia-Client-UUID</code> and <code>Julia-Project-Hash</code> headers are omitted. If you want to only opt out of sending the project hash header, you can leave <code>client_uuid</code> as &#40;or delete it entirely and a new one will be generated&#41; and set <code>secret_salt &#61; falsse</code>, which results in this telemetry info:</p>
+<p>The <code>Julia-Client-UUID</code> and <code>Julia-Project-Hash</code> headers are omitted. If you want to only opt out of sending the project hash header, you can leave <code>client_uuid</code> as &#40;or delete it entirely and a new one will be generated&#41; and set <code>secret_salt &#61; false</code>, which results in this telemetry info:</p>
 <pre><code class="text hljs">Julia-Pkg-Protocol: 1.0
 Julia-Version: 1.6.0-DEV.282
 Julia-System: x86_64-apple-darwin14-libgfortran5
