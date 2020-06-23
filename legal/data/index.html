@@ -15,7 +15,7 @@ Julia-Interactive: <span class=hljs-literal >true</span></code></pre> In what fo
 <pre><code class="text hljs">Julia-System: x86_64-apple-darwin14-libgfortran5</code></pre> This is the so-called &quot;platform triplet&quot; which identifies the details of what architecture, operating system, kernel version, and other ABI &#40;&quot;application binary interface&quot;&#41; features your system needs. Knowing the number of users of each operating system helps Julia&#39;s developers and package developers prioritize support for different operating system.  Julia&#39;s package manager provides pre-compiled binary libraries for many dependencies; these are selected using precisely this triplet value, so knowing how many users there are for each possible triplet value helps understand where limited support efforts should be spent to benefit the greatest number of users. You can opt out of this header by turning telemetry off entirely.</p>
 <h3 id=client_uuid ><a href="#client_uuid">Client UUID</a></h3>
 <pre><code class="text hljs">Julia-Client-UUID: afda810c-134c-4059-9594-3d1b0e9f0928</code></pre> Unless you have opted of client UUIDs, the first time the Julia client connects to a package server, it generates a random client UUID, which it sends with each request. This helps us estimate the number of Julia installs there are, which in combination with some of the other telemetry data allows estimating the number of Julia users. Having client UUIDs is essential for answering this question, since otherwise there&#39;s no way to distinguish a single install making a thousand requests from a thousand clients making a single request each. It also helps us answer other significant questions:</p>
-<ul>
+<div class=tight-list ><ul>
 <li><p>How often do users upgrade Julia?</p>
 
 <li><p>How often do users upgrade packages?</p>
@@ -27,6 +27,7 @@ Julia-Interactive: <span class=hljs-literal >true</span></code></pre> In what fo
 <li><p>How many package operations does a typical user perform in a given unit of time?</p>
 
 </ul>
+</div>
 <p>Being able to answer these kinds of questions helps to improve the Julia experience for everyone. For example, if most users upgrade Julia as soon as possible, we should consider making more frequent Julia releases, whereas if most users only upgrade every six months or longer, then we might want to consider making less frequent releases and spend our limited time and energy budget on other aspects of development.</p>
 <p>It&#39;s worth noting that <em>&quot;how many Julia users are there?&quot;</em> is the first question asked by organizations of all kinds—commercial, philanthropic and governmental—when they are considering investing in Julia, whether by giving grants to support open source work, by sponsoring JuliaCon, or by adopting the language for development of their own software systems.</p>
 <h3 id=project_hash ><a href="#project_hash">Project Hash</a></h3>
