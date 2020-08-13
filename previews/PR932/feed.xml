@@ -558,6 +558,14 @@
     <pubDate>Wed, 8 Aug 2018 00:00:00 UT</pubDate>
   </item>
   <item>
+    <title>Julia 1.5 Highlights</title>
+    <link>https://julialang.netlify.app/previews/PR932/blog/2020/08/julia-1.5-highlights/index.html</link>
+    <description><![CDATA[Julia version 1.5 has been released, featuring many performance improvements and new capabilities.
+<br><a href="https://julialang.netlify.app/previews/PR932/blog/2020/08/julia-1.5-highlights/index.html">Read more</a>]]></description>
+    <guid>https://julialang.netlify.app/previews/PR932/blog/2020/08/julia-1.5-highlights/index.html</guid>
+    <pubDate>Mon, 3 Aug 2020 00:00:00 UT</pubDate>
+  </item>
+  <item>
     <title>DiffEqFlux.jl – A Julia Library for Neural Differential Equations</title>
     <link>https://julialang.netlify.app/previews/PR932/blog/2019/01/fluxdiffeq/index.html</link>
     <description><![CDATA[DiffEqFlux.jl – A Julia Library for Neural Differential Equations... 
@@ -604,6 +612,14 @@
 <br><a href="https://julialang.netlify.app/previews/PR932/blog/2017/08/gsoc-docs-in-juno/index.html">Read more</a>]]></description>
     <guid>https://julialang.netlify.app/previews/PR932/blog/2017/08/gsoc-docs-in-juno/index.html</guid>
     <pubDate>Mon, 28 Aug 2017 00:00:00 UT</pubDate>
+  </item>
+  <item>
+    <title>JuliaCon 2020 Wrap-up</title>
+    <link>https://julialang.netlify.app/previews/PR932/blog/2020/08/juliacon-2020-wrapup/index.html</link>
+    <description><![CDATA[JuliaCon 2020 Wrap-up
+<br><a href="https://julialang.netlify.app/previews/PR932/blog/2020/08/juliacon-2020-wrapup/index.html">Read more</a>]]></description>
+    <guid>https://julialang.netlify.app/previews/PR932/blog/2020/08/juliacon-2020-wrapup/index.html</guid>
+    <pubDate>Tue, 11 Aug 2020 00:00:00 UT</pubDate>
   </item>
   <item>
     <title>Google Summer of Code 2016</title>
