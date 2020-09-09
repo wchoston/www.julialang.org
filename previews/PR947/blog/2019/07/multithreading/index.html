@@ -70,7 +70,7 @@ i = 6 on thread 2</code></pre>
     <span class=hljs-keyword >return</span> v
 <span class=hljs-keyword >end</span></code></pre>
 <p>This is just a standard mergesort implementation, similar to the one in Julia&#39;s <code>Base</code> library, with only the tiny addition of the <code>@spawn</code> construct on one of the recursive calls. Julia&#39;s <code>Distributed</code> standard library has also exported a <code>@spawn</code> macro for quite a while, but we plan to discontinue it in favor of the new threaded meaning &#40;though it will still be available in 1.x versions, for backwards compatibility&#41;. This way of expressing parallelism is much more useful in shared memory, and &quot;spawn&quot; is a pretty standard term in task parallel APIs &#40;used in Cilk as well as <a href="https://software.intel.com/en-us/node/506304">TBB</a>, for example&#41;.</p>
-<code>wait</code> simply waits for the specified task to finish. The code works by modifying its input, so we don&#39;t need the task&#39;s return value. Indicating that a return value is not needed is the only difference with the <code>fetch</code> call used in the earlier <code>fib</code> example. Note that we explicitly request <code>MergeSort</code> when calling Julia&#39;s standard <code>sort&#33;</code>, to make sure we&#39;re comparing apples to apples — <code>sort&#33;</code> actually uses quicksort by default for sorting numbers, which tends to be faster for random data. Let&#39;s time the code under <code>JULIA_NUM_THREADS&#61;2</code>:</p>
+<p><code>wait</code> simply waits for the specified task to finish. The code works by modifying its input, so we don&#39;t need the task&#39;s return value. Indicating that a return value is not needed is the only difference with the <code>fetch</code> call used in the earlier <code>fib</code> example. Note that we explicitly request <code>MergeSort</code> when calling Julia&#39;s standard <code>sort&#33;</code>, to make sure we&#39;re comparing apples to apples — <code>sort&#33;</code> actually uses quicksort by default for sorting numbers, which tends to be faster for random data. Let&#39;s time the code under <code>JULIA_NUM_THREADS&#61;2</code>:</p>
 <pre><code class="julia-repl hljs"><span class=hljs-meta >julia&gt;</span><span class=julia > a = rand(<span class=hljs-number >20000000</span>);
 </span>
 <span class=hljs-meta >julia&gt;</span><span class=julia > b = copy(a); <span class=hljs-meta >@time</span> sort!(b, alg = <span class=hljs-literal >MergeSort</span>);   <span class=hljs-comment ># single-threaded</span>
@@ -183,7 +183,7 @@ i = 6 on thread 2</code></pre>
 <h2 id=acknowledgements ><a href="#acknowledgements">Acknowledgements</a></h2>
 <p>We would like to gratefully acknowledge funding support from <a href="https://www.intel.com/">Intel</a> and <a href="https://relational.ai/">relationalAI</a> that made it possible to develop these new capabilities.</p>
 <p>We are also grateful to the several people who patiently tried this functionality while it was in development and filed bug reports or pull requests, and spurred us to keep going. If you encounter any issues using threads in Julia, please let us know on <a href="https://github.com/JuliaLang/julia/issues">GitHub</a> or our <a href="https://discourse.julialang.org/">Discourse</a> forum&#33;</p>
-</p>
+<p></p>
 </div><br><br>
 
 
@@ -200,7 +200,6 @@ i = 6 on thread 2</code></pre>
       <ul>
         <li><a href="/previews/PR947/project">About</a>
         <li><a href="/previews/PR947/about/help">Get Help</a>
-        <li><a href="/previews/PR947/community/#julia_github_groups">Domains</a>
         <li><a href="/previews/PR947/blog/2019/02/julia-entities/">Governance</a>
         <li><a href="/previews/PR947/legal/data/">Legal</a>
         <li><a href="/previews/PR947/research/#publications">Publications</a>
@@ -212,23 +211,22 @@ i = 6 on thread 2</code></pre>
         <li><a href="https://github.com/JuliaLang/julia">Source Code</a>
         <li><a href="/previews/PR947/downloads/#current_stable_release">Current Stable Release</a>
         <li><a href="/previews/PR947/downloads/#long_term_support_release">Longterm Support Release</a>
-        <li><a href="/previews/PR947/downloads/platform/#platform_specific_instructions_for_unofficial_binaries">Unofficial Binaries</a>
         <li><a href="https://status.julialang.org/">PkgServer Status</a>
       </ul>
       <ul>
         <li><a href="https://docs.julialang.org/en/v1/">Documentation</a>
-        <li><a href="https://www.youtube.com/user/JuliaLanguage">Video Talks</a>
-        <li><a href="/previews/PR947/learning/getting-started/">Beginners Guide</a>
+        <li><a href="https://juliaacademy.com">JuliaAcademy</a>
+        <li><a href="https://www.youtube.com/user/JuliaLanguage">YouTube</a>
+        <li><a href="/previews/PR947/learning/getting-started/">Getting Started</a>
         <li><a href="https://docs.julialang.org/en/v1/manual/faq/">FAQ</a>
-        <li><a href="/previews/PR947/learning/#books">Julia Books</a>
+        <li><a href="/previews/PR947/learning/books">Books</a>
       </ul>
       <ul>
         <li><a href="/previews/PR947/community/">Community</a>
-        <li><a href="/previews/PR947/community/#2019_julia_user_and_developer_survey">User/Developer Survey</a>
-        <li><a href="/previews/PR947/diversity/">Diversity</a>
-        <li><a href="/previews/PR947/community/#official_channels">Official Channels</a>
         <li><a href="/previews/PR947/community/standards/">Code of Conduct</a>
-        <li><a href="/previews/PR947/community/#events">Events</a>
+        <li><a href="/previews/PR947/diversity/">Diversity</a>
+        <li><a href="https://juliacon.org">JuliaCon</a>
+        <li><a href="/previews/PR947/community/#julia_user_and_developer_survey">User/Developer Survey</a>
         <li><a href="https://shop.spreadshirt.com/numfocus/official+julia+logo?idea=5bca3ad9f93764414a5de55f">Shop Merchandise</a>
       </ul>
       <ul>

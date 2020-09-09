@@ -238,6 +238,14 @@
     <pubDate>Sat, 21 Jan 2017 00:00:00 UT</pubDate>
   </item>
   <item>
+    <title>Analyzing sources of compiler latency in Julia: method invalidations</title>
+    <link>https://julialang.netlify.app/previews/PR947/blog/2020/08/invalidations/index.html</link>
+    <description><![CDATA[Julia runs fast, but suffers from latency due to compilation. This post analyzes one source of excess compilation, tools for detecting and eliminating its causes, and the impact this effort has had on latency.
+<br><a href="https://julialang.netlify.app/previews/PR947/blog/2020/08/invalidations/index.html">Read more</a>]]></description>
+    <guid>https://julialang.netlify.app/previews/PR947/blog/2020/08/invalidations/index.html</guid>
+    <pubDate>Wed, 26 Aug 2020 00:00:00 UT</pubDate>
+  </item>
+  <item>
     <title>Upgrades to the REPL in Julia 0.6</title>
     <link>https://julialang.netlify.app/previews/PR947/blog/2017/04/repl-0.6-highlights/index.html</link>
     <description><![CDATA[Upgrades to the REPL in Julia 0.6 | Since version 0.3, Julia has come with a command-line interface — a REPL &#40;https://en.wikipedia.org/wiki/Read&#37;E2&#37;80&#37;93eval&#37;E2&#37;80&#37;93print_loop&#41;... 
@@ -622,6 +630,14 @@
     <pubDate>Mon, 28 Aug 2017 00:00:00 UT</pubDate>
   </item>
   <item>
+    <title>JuliaCon 2020 Wrap-up</title>
+    <link>https://julialang.netlify.app/previews/PR947/blog/2020/08/juliacon-2020-wrapup/index.html</link>
+    <description><![CDATA[JuliaCon 2020 Wrap-up
+<br><a href="https://julialang.netlify.app/previews/PR947/blog/2020/08/juliacon-2020-wrapup/index.html">Read more</a>]]></description>
+    <guid>https://julialang.netlify.app/previews/PR947/blog/2020/08/juliacon-2020-wrapup/index.html</guid>
+    <pubDate>Tue, 11 Aug 2020 00:00:00 UT</pubDate>
+  </item>
+  <item>
     <title>Google Summer of Code 2016</title>
     <link>https://julialang.netlify.app/previews/PR947/blog/2016/04/gsoc/index.html</link>
     <description><![CDATA[Google Summer of Code 2016 | We’re pleased to announce that the Julia Language is taking part in this year’s Google Summer of Code &#40;https://summerofcode.withgoogle.com&#41;. This means that interested students will have the opportunity to spend their summers getting paid to write code on a project of their choice.... 
@@ -828,6 +844,14 @@
 <br><a href="https://julialang.netlify.app/previews/PR947/blog/2019/07/multithreading/index.html">Read more</a>]]></description>
     <guid>https://julialang.netlify.app/previews/PR947/blog/2019/07/multithreading/index.html</guid>
     <pubDate>Tue, 23 Jul 2019 00:00:00 UT</pubDate>
+  </item>
+  <item>
+    <title>2020 Julia User and Developer Survey</title>
+    <link>https://julialang.netlify.app/previews/PR947/blog/2020/08/2020-julia-user-and-developer-survey/index.html</link>
+    <description><![CDATA[This year, 2,565 Julia users and developers participated in the second annual Julia User and Developer Survey.
+<br><a href="https://julialang.netlify.app/previews/PR947/blog/2020/08/2020-julia-user-and-developer-survey/index.html">Read more</a>]]></description>
+    <guid>https://julialang.netlify.app/previews/PR947/blog/2020/08/2020-julia-user-and-developer-survey/index.html</guid>
+    <pubDate>Mon, 24 Aug 2020 00:00:00 UT</pubDate>
   </item>
   <item>
     <title>A Personal Perspective On JuliaCon 2016</title>
